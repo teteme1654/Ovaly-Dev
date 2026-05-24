@@ -56,6 +56,7 @@ function broadcastToSlaves(data) {
 let scoreboardWindow = null;
 let scoreboardChromakeyWindow = null;
 let substitutionSlideWindow = null;
+let playerSlideWindow = null;
 
 // ディスプレイ設定を保存
 let displaySettings = {
@@ -95,6 +96,12 @@ let displaySettings = {
   // HOSTチーム選手画像調整
   hostPlayerImageOffsetY: 0,   // 縦オフセット（px）
   hostPlayerImageScale: 1.0,   // スケール
+
+  // 選手紹介スライドレイアウト
+  playerSlideLayouts: {
+    host: { default: null, players: {} },
+    away: { default: null, players: {} }
+  }
 };
 
 // 設定ファイルのパス
@@ -373,6 +380,34 @@ function createSubstitutionSlideWindow() {
   });
 }
 
+function createPlayerSlideWindow() {
+  const displays = screen.getAllDisplays();
+  let targetDisplay;
+  if (displaySettings.displayWindowIndex !== null && displays[displaySettings.displayWindowIndex]) {
+    targetDisplay = displays[displaySettings.displayWindowIndex];
+  } else {
+    targetDisplay = displays.find(d => d.bounds.x !== 0 || d.bounds.y !== 0) || displays[0];
+  }
+
+  playerSlideWindow = new BrowserWindow({
+    x: targetDisplay.bounds.x,
+    y: targetDisplay.bounds.y,
+    fullscreen: true,
+    frame: false,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      preload: path.join(__dirname, 'preload.js')
+    },
+    title: 'Ovaly - 選手紹介スライド'
+  });
+
+  playerSlideWindow.loadFile('player-slide.html');
+  playerSlideWindow.on('closed', () => {
+    playerSlideWindow = null;
+  });
+}
+
 app.whenReady().then(() => {
   loadDisplaySettings(); // ディスプレイ設定を読み込む
   loadTeamConfig();      // チーム設定を読み込む
@@ -582,6 +617,27 @@ ipcMain.handle('load-csv', async (event, team) => {
       }
     }
 
+    // players_master.csv から英語名を付与
+    const masterPath = path.join(__dirname, 'assets', 'teams', teamName, 'players_master.csv');
+    if (fs.existsSync(masterPath)) {
+      try {
+        const masterContent = fs.readFileSync(masterPath, 'utf-8');
+        const masterMap = {};
+        masterContent.split('\n').slice(1).forEach(line => {
+          const cols = line.split(',');
+          if (cols.length >= 2) {
+            const jpName = cols[0].trim();
+            const enName = cols[1].trim();
+            if (jpName) masterMap[jpName] = enName;
+          }
+        });
+        players.forEach(p => { p.nameEn = masterMap[p.name] || ''; });
+        console.log(`✅ players_master.csv 読み込み成功: ${Object.keys(masterMap).length}件`);
+      } catch (err) {
+        console.warn('⚠️ players_master.csv 読み込みエラー:', err);
+      }
+    }
+
     // matchDataを更新
     matchData[teamKey].name = teamName;
     matchData[teamKey].logo = logoDataUri;
@@ -673,6 +729,20 @@ ipcMain.handle('update-player', (event, team, playerIndex, updatedPlayer) => {
       ...players[playerIndex],
       ...updatedPlayer
     };
+
+    // マスターCSVから英語名を再突合
+    const teamKey = team === 'host' ? 'hostTeam' : 'awayTeam';
+    const teamName = matchData[teamKey].name;
+    const masterPath = path.join(__dirname, 'assets', 'teams', teamName, 'players_master.csv');
+    if (fs.existsSync(masterPath)) {
+      const masterContent = fs.readFileSync(masterPath, 'utf-8');
+      const masterMap = {};
+      masterContent.split('\n').slice(1).forEach(line => {
+        const cols = line.split(',');
+        if (cols.length >= 2) masterMap[cols[0].trim()] = cols[1].trim();
+      });
+      players[playerIndex].nameEn = masterMap[players[playerIndex].name] || '';
+    }
     
     // 表示画面を更新
     updateDisplay();
@@ -1375,39 +1445,55 @@ ipcMain.handle('get-preset-list', async (event) => {
   }
 });
 
+// 選手紹介スライドのデフォルトレイアウト
+const DEFAULT_PLAYER_SLIDE_LAYOUT = {
+  jerseyNumber: { left: 131, top: 293, size: 111 },
+  teamLogo:     { left: 41,  top: 500, size: 200 },
+  nameJp:       { left: 325, top: 500, size: 100 },
+  nameEn:       { left: 318, top: 610, size: 51  },
+  position:     { right: 492, top: 550, size: 66 },
+  playerPhoto:  { right: 60,  top: 0,  size: 1080 }
+};
+
+function getPlayerSlideLayout(team, playerNumber) {
+  const layouts = displaySettings.playerSlideLayouts || { host: { default: null, players: {} }, away: { default: null, players: {} } };
+  const teamLayouts = layouts[team] || { default: null, players: {} };
+  const playerKey = String(playerNumber);
+  // 個別設定 → チームデフォルト → グローバルデフォルト の優先順
+  return teamLayouts.players[playerKey] || teamLayouts.default || DEFAULT_PLAYER_SLIDE_LAYOUT;
+}
+
+// ============================================================
+// 選手画像読み込みユーティリティ（共有）
+// ============================================================
+function loadPlayerImage(teamName, playerName) {
+  const storedPath = displaySettings.playerImagesBasePath || '';
+  const basePath = storedPath ? path.resolve(__dirname, storedPath) : '';
+  const assetsTeamsPath = path.join(__dirname, 'assets', 'teams');
+
+  const candidates = [];
+  if (basePath) candidates.push(path.join(basePath, teamName, 'nobg', `${playerName}_nobg.png`));
+  candidates.push(path.join(assetsTeamsPath, teamName, 'nobg', `${playerName}_nobg.png`));
+
+  for (const imgPath of candidates) {
+    if (fs.existsSync(imgPath)) {
+      try {
+        const buf = fs.readFileSync(imgPath);
+        return `data:image/png;base64,${buf.toString('base64')}`;
+      } catch (e) {
+        console.warn('選手画像読み込みエラー:', imgPath, e.message);
+      }
+    }
+  }
+  return null;
+}
+
 // ============================================================
 // 選手交代スライド機能
 // ============================================================
 
 // 選手交代スライドの待機準備
 ipcMain.handle('prepare-substitution-slide', async (event, slideData) => {
-  const storedPath = displaySettings.playerImagesBasePath || '';
-  // 相対パスで保存されている場合は絶対パスに解決する
-  const basePath = storedPath ? path.resolve(__dirname, storedPath) : '';
-
-  // アプリ内フォールバックパス
-  const assetsTeamsPath = path.join(__dirname, 'assets', 'teams');
-
-  function loadPlayerImage(teamName, playerName) {
-    const candidates = [];
-    // 外部フォルダが設定されていれば優先
-    if (basePath) candidates.push(path.join(basePath, teamName, 'nobg', `${playerName}_nobg.png`));
-    // フォールバック: assets/teams/
-    candidates.push(path.join(assetsTeamsPath, teamName, 'nobg', `${playerName}_nobg.png`));
-
-    for (const imgPath of candidates) {
-      if (fs.existsSync(imgPath)) {
-        try {
-          const buf = fs.readFileSync(imgPath);
-          return `data:image/png;base64,${buf.toString('base64')}`;
-        } catch (e) {
-          console.warn('選手画像読み込みエラー:', imgPath, e.message);
-        }
-      }
-    }
-    return null;
-  }
-
   const isHost = slideData.team === 'host';
   const imageAdjust = isHost ? {
     offsetY: displaySettings.hostPlayerImageOffsetY || 0,
@@ -1462,6 +1548,232 @@ ipcMain.handle('close-substitution-slide', () => {
     substitutionSlideWindow.close();
   }
   return { success: true };
+});
+
+// ============================================================
+// 選手紹介スライド機能
+// ============================================================
+ipcMain.handle('prepare-player-slide', async (event, slideData) => {
+  // ロゴ解決: 渡されたlogoがあればそれを使い、なければassets/logosから取得
+  let teamLogo = slideData.teamLogo || null;
+  if (!teamLogo && slideData.teamName) {
+    const logosPath = path.join(__dirname, 'assets', 'logos');
+    for (const ext of ['.png', '.jpg', '.jpeg', '.svg']) {
+      const filePath = path.join(logosPath, slideData.teamName + ext);
+      if (fs.existsSync(filePath)) {
+        const buf = fs.readFileSync(filePath);
+        const mime = ext === '.svg' ? 'image/svg+xml' : ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' : 'image/png';
+        teamLogo = `data:${mime};base64,${buf.toString('base64')}`;
+        break;
+      }
+    }
+  }
+
+  const layout = slideData.layout || getPlayerSlideLayout(slideData.team, slideData.playerNumber);
+  const enriched = {
+    ...slideData,
+    teamLogo,
+    layout,
+    playerImage: loadPlayerImage(slideData.teamName, slideData.playerName)
+  };
+
+  if (!playerSlideWindow || playerSlideWindow.isDestroyed()) {
+    createPlayerSlideWindow();
+    playerSlideWindow.webContents.on('did-finish-load', () => {
+      playerSlideWindow.webContents.send('player-slide-prepare', enriched);
+    });
+  } else {
+    playerSlideWindow.webContents.send('player-slide-prepare', enriched);
+  }
+  return { success: true };
+});
+
+ipcMain.handle('trigger-player-slide', () => {
+  if (playerSlideWindow && !playerSlideWindow.isDestroyed()) {
+    playerSlideWindow.webContents.send('player-slide-trigger');
+  }
+  return { success: true };
+});
+
+ipcMain.handle('reset-player-slide', () => {
+  if (playerSlideWindow && !playerSlideWindow.isDestroyed()) {
+    playerSlideWindow.webContents.send('player-slide-reset');
+  }
+  return { success: true };
+});
+
+ipcMain.handle('close-player-slide', () => {
+  if (playerSlideWindow && !playerSlideWindow.isDestroyed()) {
+    playerSlideWindow.close();
+  }
+  return { success: true };
+});
+
+ipcMain.handle('update-player-slide-layout', (event, layout) => {
+  if (playerSlideWindow && !playerSlideWindow.isDestroyed()) {
+    playerSlideWindow.webContents.send('player-slide-layout-update', layout);
+  }
+});
+
+// レイアウト取得
+ipcMain.handle('get-player-slide-layout', (event, team, playerNumber) => {
+  return getPlayerSlideLayout(team, playerNumber);
+});
+
+ipcMain.handle('get-player-slide-default-layout', () => {
+  return DEFAULT_PLAYER_SLIDE_LAYOUT;
+});
+
+// レイアウト保存（個別）
+ipcMain.handle('save-player-slide-layout', (event, team, playerNumber, layout) => {
+  if (!displaySettings.playerSlideLayouts) {
+    displaySettings.playerSlideLayouts = { host: { default: null, players: {} }, away: { default: null, players: {} } };
+  }
+  if (!displaySettings.playerSlideLayouts[team]) {
+    displaySettings.playerSlideLayouts[team] = { default: null, players: {} };
+  }
+  displaySettings.playerSlideLayouts[team].players[String(playerNumber)] = layout;
+  saveDisplaySettings();
+  return { success: true };
+});
+
+// レイアウト保存（チーム一括）
+ipcMain.handle('save-player-slide-layout-bulk', (event, team, layout) => {
+  if (!displaySettings.playerSlideLayouts) {
+    displaySettings.playerSlideLayouts = { host: { default: null, players: {} }, away: { default: null, players: {} } };
+  }
+  if (!displaySettings.playerSlideLayouts[team]) {
+    displaySettings.playerSlideLayouts[team] = { default: null, players: {} };
+  }
+  displaySettings.playerSlideLayouts[team].default = layout;
+  // 個別設定をクリア（一括が後勝ち）
+  displaySettings.playerSlideLayouts[team].players = {};
+  saveDisplaySettings();
+  return { success: true };
+});
+
+// 選手紹介スライドをPNGエクスポート
+ipcMain.handle('export-player-slide', async (event, slideData) => {
+  // 保存先フォルダを選択
+  const result = await dialog.showSaveDialog(mainWindow, {
+    title: '選手紹介スライドを保存',
+    defaultPath: `${slideData.playerNumber}_${slideData.playerName}.png`,
+    filters: [{ name: 'PNG画像', extensions: ['png'] }]
+  });
+  if (result.canceled) return { success: false };
+
+  // ロゴ解決
+  let teamLogo = slideData.teamLogo || null;
+  if (!teamLogo && slideData.teamName) {
+    const logosPath = path.join(__dirname, 'assets', 'logos');
+    for (const ext of ['.png', '.jpg', '.jpeg', '.svg']) {
+      const filePath = path.join(logosPath, slideData.teamName + ext);
+      if (fs.existsSync(filePath)) {
+        const buf = fs.readFileSync(filePath);
+        const mime = ext === '.svg' ? 'image/svg+xml' : ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' : 'image/png';
+        teamLogo = `data:${mime};base64,${buf.toString('base64')}`;
+        break;
+      }
+    }
+  }
+
+  const layout = slideData.layout || getPlayerSlideLayout(slideData.team, slideData.playerNumber);
+  const enriched = {
+    ...slideData,
+    teamLogo,
+    layout,
+    playerImage: loadPlayerImage(slideData.teamName, slideData.playerName)
+  };
+
+  // エクスポート用ウィンドウを作成（非表示）
+  const exportWin = new BrowserWindow({
+    width: 1920,
+    height: 1080,
+    show: false,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      preload: path.join(__dirname, 'preload.js')
+    }
+  });
+
+  await exportWin.loadFile('player-slide.html');
+
+  // スライドデータを送信して表示状態にする
+  exportWin.webContents.send('player-slide-prepare', enriched);
+  exportWin.webContents.send('player-slide-trigger');
+
+  // レンダリング待ち
+  await new Promise(resolve => setTimeout(resolve, 800));
+
+  // スクリーンショット取得
+  const image = await exportWin.webContents.capturePage();
+  fs.writeFileSync(result.filePath, image.toPNG());
+  exportWin.close();
+
+  return { success: true, filePath: result.filePath };
+});
+
+// 全選手スライド一括エクスポート
+ipcMain.handle('export-player-slides-bulk', async (event, team) => {
+  const teamKey = team === 'host' ? 'hostTeam' : 'awayTeam';
+  const teamName = matchData[teamKey].name;
+  const players = (matchData.players && matchData.players[team]) || [];
+  if (players.length === 0) return { success: false, error: '選手データがありません' };
+
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: `保存先の親フォルダを選択（${teamName}フォルダが自動作成されます）`,
+    properties: ['openDirectory', 'createDirectory']
+  });
+  if (result.canceled) return { success: false };
+  const outputDir = path.join(result.filePaths[0], teamName);
+  if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true });
+
+  // ロゴ解決（全選手共通なので一度だけ）
+  let teamLogo = matchData[teamKey].logo || null;
+  if (!teamLogo && teamName) {
+    const logosPath = path.join(__dirname, 'assets', 'logos');
+    for (const ext of ['.png', '.jpg', '.jpeg', '.svg']) {
+      const filePath = path.join(logosPath, teamName + ext);
+      if (fs.existsSync(filePath)) {
+        const buf = fs.readFileSync(filePath);
+        const mime = ext === '.svg' ? 'image/svg+xml' : ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' : 'image/png';
+        teamLogo = `data:${mime};base64,${buf.toString('base64')}`;
+        break;
+      }
+    }
+  }
+
+  // ウィンドウを1つ作成して全選手分使い回す
+  const exportWin = new BrowserWindow({
+    width: 1920, height: 1080, show: false,
+    webPreferences: { nodeIntegration: false, contextIsolation: true, preload: path.join(__dirname, 'preload.js') }
+  });
+  await exportWin.loadFile('player-slide.html');
+
+  let savedCount = 0;
+  for (const player of players) {
+    const layout = getPlayerSlideLayout(team, player.number);
+    const enriched = {
+      team, teamName, teamLogo,
+      playerNumber: player.number,
+      playerName: player.name,
+      playerNameEn: player.nameEn || '',
+      position: player.position || '',
+      layout,
+      playerImage: loadPlayerImage(teamName, player.name)
+    };
+    exportWin.webContents.send('player-slide-prepare', enriched);
+    exportWin.webContents.send('player-slide-trigger');
+    await new Promise(resolve => setTimeout(resolve, 800));
+    const image = await exportWin.webContents.capturePage();
+    const fileName = `${player.number}_${player.name}.png`;
+    fs.writeFileSync(path.join(outputDir, fileName), image.toPNG());
+    savedCount++;
+  }
+
+  exportWin.close();
+  return { success: true, folderPath: outputDir, count: savedCount };
 });
 
 // 選手画像フォルダパスを設定

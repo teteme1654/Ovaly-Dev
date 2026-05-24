@@ -482,6 +482,45 @@
       </div>
     </div>
 
+    <!-- 選手紹介スライド準備 -->
+    <div class="control-panel">
+      <h2 class="section-title">選手紹介スライド準備</h2>
+
+      <!-- チーム選択タブ -->
+      <div style="display: flex; gap: 8px; margin-bottom: 14px;">
+        <button id="slidePrepTabHost" onclick="setSlidePrepTeam('host')"
+          style="flex: 1; padding: 8px; font-weight: bold; border: none; border-radius: 5px; cursor: pointer; background: #667eea; color: white;">HOST</button>
+        <button id="slidePrepTabAway" onclick="setSlidePrepTeam('away')"
+          style="flex: 1; padding: 8px; font-weight: bold; border: none; border-radius: 5px; cursor: pointer; background: #ddd; color: #555;">VISITOR</button>
+      </div>
+
+      <!-- 選手ドロップダウン + アクションボタン -->
+      <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 14px;">
+        <select id="slidePrepPlayerSelect" onchange="onSlidePrepPlayerChange()"
+          style="flex: 1; padding: 8px; border: 2px solid #ddd; border-radius: 5px; font-size: 0.9em;">
+          <option value="">— CSVを読み込んでください —</option>
+        </select>
+        <button onclick="previewSelectedSlide()"
+          style="padding: 8px 14px; background: #667eea; color: white; border: none; border-radius: 5px; cursor: pointer; white-space: nowrap;">👁 プレビュー</button>
+        <button onclick="exportSelectedSlide()"
+          style="padding: 8px 14px; background: #28a745; color: white; border: none; border-radius: 5px; cursor: pointer; white-space: nowrap;">💾 保存</button>
+      </div>
+
+      <!-- レイアウト調整エリア -->
+      <div id="slidePrepLayoutEditor" style="display: none;">
+        <div style="font-size: 0.82em; font-weight: bold; color: #555; letter-spacing: 0.05em; margin-bottom: 10px;">レイアウト調整</div>
+        <div id="slidePrepSliders" style="display: flex; flex-direction: column; gap: 8px; font-size: 0.85em;"></div>
+        <div style="display: flex; gap: 8px; margin-top: 14px;">
+          <button onclick="saveLayoutForSelected()"
+            style="flex: 1; padding: 9px; background: #fd7e14; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 0.9em;">この選手に適用</button>
+          <button onclick="saveLayoutBulk()"
+            style="flex: 1; padding: 9px; background: #6c757d; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 0.9em;">全選手に一括適用</button>
+        </div>
+        <button onclick="exportAllSlides()"
+          style="width: 100%; margin-top: 8px; padding: 9px; background: #28a745; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 0.9em;">📁 全選手まとめて保存</button>
+      </div>
+    </div>
+
     </div><!-- /tab-prep -->
 
     <!-- ========== Tab 2: ディスプレイ設定 ========== -->
@@ -968,6 +1007,30 @@
     <!-- ========== Tab 4: スライド制御 ========== -->
     <div id="tab-slide" class="tab-panel">
 
+    <!-- 得点履歴 -->
+    <div class="control-panel">
+      <h2 class="section-title" style="color: #e53935; border-color: #e53935;">得点履歴</h2>
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+        <div>
+          <div style="font-size: 0.85em; color: #555; margin-bottom: 8px; font-weight: bold; letter-spacing: 0.05em;">HOST</div>
+          <div id="hostScoringHistory" style="display: flex; flex-direction: column; gap: 6px; min-height: 36px;">
+            <div style="color: #aaa; font-size: 0.85em; padding: 6px 0;">得点なし</div>
+          </div>
+        </div>
+        <div>
+          <div style="font-size: 0.85em; color: #555; margin-bottom: 8px; font-weight: bold; letter-spacing: 0.05em;">VISITOR</div>
+          <div id="awayScoringHistory" style="display: flex; flex-direction: column; gap: 6px; min-height: 36px;">
+            <div style="color: #aaa; font-size: 0.85em; padding: 6px 0;">得点なし</div>
+          </div>
+        </div>
+      </div>
+      <!-- 選手紹介スライド制御ボタン -->
+      <div style="display: flex; gap: 10px; margin-top: 14px;">
+        <button onclick="window.electronAPI.resetPlayerSlide()" style="flex: 1; background: #ff9800; color: white; padding: 10px; border: none; border-radius: 5px; font-size: 0.95em; font-weight: bold; cursor: pointer;">🔄 スライドを隠す</button>
+        <button onclick="window.electronAPI.closePlayerSlide()" style="flex: 1; background: #6c757d; color: white; padding: 10px; border: none; border-radius: 5px; font-size: 0.95em; cursor: pointer;">❌ スライドを閉じる</button>
+      </div>
+    </div>
+
     <div class="control-panel">
       <h2 class="section-title" style="color: #e53935; border-color: #e53935;">選手交代スライド制御</h2>
 
@@ -1121,6 +1184,9 @@
       first: { host: 0, away: 0 },
       second: { host: 0, away: 0 }
     };
+    let scoringHistory = [];
+    let slidePrepTeam = 'host';
+    let slidePrepLayout = null;
 
     // 前半/後半切り替え
     async function switchHalf(half) {
@@ -1186,7 +1252,11 @@
       
       // 表示を更新（この時点でbackendのデータが更新されている）
       await loadData();
-      
+
+      // 得点履歴に追加
+      scoringHistory.push({ id: Date.now(), team, type, points, half: currentHalf, cancelled: false, scorerNumber: null, scorerName: null });
+      renderScoringHistory();
+
       // loadData()の後は不要（updateUI()で正しく更新される）
     }
 
@@ -1244,10 +1314,91 @@
       
       // 表示を更新（この時点でbackendのデータが更新されている）
       await loadData();
-      
+
+      // 得点履歴に取り消しエントリを追加
+      scoringHistory.push({ id: Date.now(), team, type, points, half: currentHalf, cancelled: true, scorerNumber: null, scorerName: null });
+      renderScoringHistory();
+
       // loadData()のupdateUI()で正しく更新される
     }
 
+
+    // 得点履歴レンダリング
+    function renderScoringHistory() {
+      const typeLabel = { try: '🏉 TRY', conversion: '⚽ CG', penalty: '🎯 PG', drop: '💨 DG', penaltyTry: '⚖️ PT' };
+      const halfLabel = { first: '前', second: '後' };
+
+      ['host', 'away'].forEach(team => {
+        const container = document.getElementById(`${team}ScoringHistory`);
+        const entries = scoringHistory.filter(e => e.team === team);
+        if (entries.length === 0) {
+          container.innerHTML = '<div style="color: #aaa; font-size: 0.85em; padding: 6px 0;">得点なし</div>';
+          return;
+        }
+
+        const players = (currentData && currentData.players && currentData.players[team]) || [];
+        const options = '<option value="">選手未選択</option>' +
+          players.map(p => `<option value="${p.number}">${p.number}. ${p.name}</option>`).join('');
+
+        container.innerHTML = entries.map(e => {
+          const cancelStyle = e.cancelled ? 'opacity: 0.45; text-decoration: line-through;' : '';
+          const cancelBadge = e.cancelled ? '<span style="color: #dc3545; font-size: 0.8em; margin-left: 4px;">✕取消</span>' : '';
+          const selectedOptions = players.map(p =>
+            `<option value="${p.number}" ${e.scorerNumber == p.number ? 'selected' : ''}>${p.number}. ${p.name}</option>`
+          ).join('');
+          const select = e.cancelled ? '' :
+            `<select data-id="${e.id}" onchange="updateScorerSelection(this)"
+              style="font-size: 0.8em; padding: 3px 6px; border: 1px solid #ddd; border-radius: 4px; max-width: 130px;">
+              <option value="">選手未選択</option>${selectedOptions}
+            </select>`;
+          const slideBtn = e.cancelled ? '' :
+            `<button data-id="${e.id}" onclick="triggerPlayerSlideFromHistory(this)"
+              style="font-size: 0.8em; padding: 3px 8px; background: #e53935; color: white; border: none; border-radius: 4px; cursor: pointer;">📺</button>`;
+          return `<div style="display: flex; align-items: center; gap: 6px; font-size: 0.85em; padding: 5px 8px; background: #f8f9fa; border-radius: 5px; ${cancelStyle}">
+            <span style="font-weight: bold;">${halfLabel[e.half]}半</span>
+            <span>${typeLabel[e.type]}</span>
+            <span style="color: #28a745; font-weight: bold;">+${e.points}</span>
+            ${cancelBadge}
+            ${select}
+            ${slideBtn}
+          </div>`;
+        }).join('');
+      });
+    }
+
+    async function triggerPlayerSlideFromHistory(btn) {
+      const id = parseInt(btn.dataset.id);
+      const entry = scoringHistory.find(e => e.id === id);
+      if (!entry) return;
+
+      const teamKey = entry.team === 'host' ? 'hostTeam' : 'awayTeam';
+      const players = (currentData && currentData.players && currentData.players[entry.team]) || [];
+      const player = entry.scorerNumber
+        ? players.find(p => p.number == entry.scorerNumber)
+        : null;
+
+      await window.electronAPI.preparePlayerSlide({
+        team: entry.team,
+        teamName: currentData[teamKey].name,
+        teamLogo: currentData[teamKey].logo || null,
+        teamColor: currentData[teamKey].color || '#333',
+        playerNumber: player ? player.number : '?',
+        playerName: player ? player.name : '未選択',
+        playerNameEn: player ? (player.nameEn || '') : '',
+        position: player ? (player.position || '') : ''
+      });
+      await window.electronAPI.triggerPlayerSlide();
+    }
+
+    function updateScorerSelection(select) {
+      const id = parseInt(select.dataset.id);
+      const entry = scoringHistory.find(e => e.id === id);
+      if (!entry) return;
+      const players = (currentData && currentData.players && currentData.players[entry.team]) || [];
+      const player = players.find(p => p.number == select.value);
+      entry.scorerNumber = select.value || null;
+      entry.scorerName = player ? player.name : null;
+    }
 
     // 初期データ読み込み
     async function loadData() {
@@ -1374,6 +1525,177 @@
       
       // 交代用ドロップダウンリストを更新
       updateSubstitutionDropdowns(team, players);
+
+      // 選手紹介スライド準備エリアを更新
+      updateSlidePrepList(team, players);
+    }
+
+    // ===== 選手紹介スライド準備 =====
+
+    const LAYOUT_SLIDER_CONFIG = [
+      { key: 'jerseyNumber', label: '背番号', fields: [
+        { prop: 'left', label: 'X', min: 0, max: 800 },
+        { prop: 'top',  label: 'Y', min: 0, max: 1080 },
+        { prop: 'size', label: 'サイズ', min: 30, max: 300 }
+      ]},
+      { key: 'teamLogo', label: 'チームロゴ', fields: [
+        { prop: 'left', label: 'X', min: 0, max: 800 },
+        { prop: 'top',  label: 'Y', min: 0, max: 1080 },
+        { prop: 'size', label: 'サイズ', min: 30, max: 500 }
+      ]},
+      { key: 'nameJp', label: '選手名（日本語）', fields: [
+        { prop: 'left', label: 'X', min: 0, max: 1920 },
+        { prop: 'top',  label: 'Y', min: 0, max: 1080 },
+        { prop: 'size', label: 'サイズ', min: 20, max: 300 }
+      ]},
+      { key: 'nameEn', label: '選手名（英語）', fields: [
+        { prop: 'left', label: 'X', min: 0, max: 1920 },
+        { prop: 'top',  label: 'Y', min: 0, max: 1080 },
+        { prop: 'size', label: 'サイズ', min: 10, max: 200 }
+      ]},
+      { key: 'position', label: 'ポジション', fields: [
+        { prop: 'right', label: 'X(右)', min: 0, max: 1920 },
+        { prop: 'top',   label: 'Y',     min: 0, max: 1080 },
+        { prop: 'size',  label: 'サイズ', min: 10, max: 200 }
+      ]},
+      { key: 'playerPhoto', label: '選手写真', fields: [
+        { prop: 'right', label: 'X(右)', min: -200, max: 500 },
+        { prop: 'top',   label: 'Y',     min: -300, max: 500 },
+        { prop: 'size',  label: 'サイズ', min: 200,  max: 2000 }
+      ]}
+    ];
+
+    function setSlidePrepTeam(team) {
+      slidePrepTeam = team;
+      document.getElementById('slidePrepTabHost').style.background = team === 'host' ? '#667eea' : '#ddd';
+      document.getElementById('slidePrepTabHost').style.color = team === 'host' ? 'white' : '#555';
+      document.getElementById('slidePrepTabAway').style.background = team === 'away' ? '#667eea' : '#ddd';
+      document.getElementById('slidePrepTabAway').style.color = team === 'away' ? 'white' : '#555';
+      const players = (currentData && currentData.players[team]) || [];
+      updateSlidePrepDropdown(team, players);
+    }
+
+    function updateSlidePrepDropdown(team, players) {
+      if (slidePrepTeam !== team) return;
+      const select = document.getElementById('slidePrepPlayerSelect');
+      if (!select) return;
+      if (players.length === 0) {
+        select.innerHTML = '<option value="">— CSVを読み込んでください —</option>';
+        document.getElementById('slidePrepLayoutEditor').style.display = 'none';
+        return;
+      }
+      const current = select.value;
+      select.innerHTML = '<option value="">— 選手を選択 —</option>' +
+        players.map(p => `<option value="${p.number}">${p.number}. ${p.name}</option>`).join('');
+      if (current && players.find(p => p.number == current)) select.value = current;
+    }
+
+    function updateSlidePrepList(team, players) {
+      updateSlidePrepDropdown(team, players);
+    }
+
+    async function onSlidePrepPlayerChange() {
+      const playerNumber = document.getElementById('slidePrepPlayerSelect').value;
+      if (!playerNumber) {
+        document.getElementById('slidePrepLayoutEditor').style.display = 'none';
+        return;
+      }
+      slidePrepLayout = await window.electronAPI.getPlayerSlideLayout(slidePrepTeam, playerNumber);
+      renderLayoutSliders();
+      document.getElementById('slidePrepLayoutEditor').style.display = 'block';
+    }
+
+    function renderLayoutSliders() {
+      const container = document.getElementById('slidePrepSliders');
+      if (!container || !slidePrepLayout) return;
+      container.innerHTML = LAYOUT_SLIDER_CONFIG.map(group => {
+        const fields = group.fields.map(f => {
+          const val = slidePrepLayout[group.key][f.prop];
+          return `
+          <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 2px;">
+            <span style="min-width: 52px; color: #666;">${f.label}</span>
+            <input type="range" min="${f.min}" max="${f.max}" value="${val}"
+              oninput="updateSlidePrepLayout('${group.key}','${f.prop}',+this.value);this.nextElementSibling.value=this.value"
+              style="flex:1;">
+            <input type="number" value="${val}" min="${f.min}" max="${f.max}"
+              oninput="updateSlidePrepLayout('${group.key}','${f.prop}',+this.value);this.previousElementSibling.value=this.value"
+              style="width:62px;padding:2px 4px;border:1px solid #ddd;border-radius:3px;font-size:0.9em;">
+          </div>`;
+        }).join('');
+        return `
+        <div style="background:#f8f9fa;border-radius:6px;padding:8px 10px;">
+          <div style="font-weight:bold;color:#444;margin-bottom:6px;font-size:0.85em;">${group.label}</div>
+          ${fields}
+        </div>`;
+      }).join('');
+    }
+
+    let _slidePrepLayoutTimer = null;
+    function updateSlidePrepLayout(key, prop, value) {
+      if (!slidePrepLayout) return;
+      slidePrepLayout[key][prop] = value;
+      clearTimeout(_slidePrepLayoutTimer);
+      _slidePrepLayoutTimer = setTimeout(() => {
+        window.electronAPI.updatePlayerSlideLayout(slidePrepLayout);
+      }, 80);
+    }
+
+    async function previewSelectedSlide() {
+      const playerNumber = document.getElementById('slidePrepPlayerSelect').value;
+      if (!playerNumber) return;
+      const teamKey = slidePrepTeam === 'host' ? 'hostTeam' : 'awayTeam';
+      const player = (currentData.players[slidePrepTeam] || []).find(p => p.number == playerNumber);
+      if (!player) return;
+      await window.electronAPI.preparePlayerSlide({
+        team: slidePrepTeam,
+        teamName: currentData[teamKey].name,
+        teamLogo: currentData[teamKey].logo || null,
+        playerNumber: player.number,
+        playerName: player.name,
+        playerNameEn: player.nameEn || '',
+        position: player.position || '',
+        layout: slidePrepLayout
+      });
+      await window.electronAPI.triggerPlayerSlide();
+    }
+
+    async function exportSelectedSlide() {
+      const playerNumber = document.getElementById('slidePrepPlayerSelect').value;
+      if (!playerNumber) return;
+      const teamKey = slidePrepTeam === 'host' ? 'hostTeam' : 'awayTeam';
+      const player = (currentData.players[slidePrepTeam] || []).find(p => p.number == playerNumber);
+      if (!player) return;
+      const result = await window.electronAPI.exportPlayerSlide({
+        team: slidePrepTeam,
+        teamName: currentData[teamKey].name,
+        teamLogo: currentData[teamKey].logo || null,
+        playerNumber: player.number,
+        playerName: player.name,
+        playerNameEn: player.nameEn || '',
+        position: player.position || '',
+        layout: slidePrepLayout
+      });
+      if (result.success) alert(`保存しました: ${result.filePath}`);
+    }
+
+    async function saveLayoutForSelected() {
+      const playerNumber = document.getElementById('slidePrepPlayerSelect').value;
+      if (!playerNumber || !slidePrepLayout) return;
+      await window.electronAPI.savePlayerSlideLayout(slidePrepTeam, playerNumber, slidePrepLayout);
+      alert('この選手のレイアウトを保存しました');
+    }
+
+    async function exportAllSlides() {
+      const result = await window.electronAPI.exportPlayerSlidesBulk(slidePrepTeam);
+      if (result && result.success) alert(`${result.count}人分を保存しました\n${result.folderPath}`);
+      else if (result && result.error) alert(`エラー: ${result.error}`);
+    }
+
+    async function saveLayoutBulk() {
+      if (!slidePrepLayout) return;
+      if (!confirm('現在のレイアウトを全選手に一括適用します。個別設定は上書きされます。よろしいですか？')) return;
+      await window.electronAPI.savePlayerSlideLayoutBulk(slidePrepTeam, slidePrepLayout);
+      alert('全選手に一括適用しました');
     }
     
     // 交代用ドロップダウンリストを更新
@@ -1435,11 +1757,13 @@
         const name = e.target.value;
         window.electronAPI.updateTeam('hostTeam', 'name', name);
         await autoLoadLogoForTeam('hostTeam', name);
+        await loadData();
       });
       document.getElementById('awayTeamName').addEventListener('change', async (e) => {
         const name = e.target.value;
         window.electronAPI.updateTeam('awayTeam', 'name', name);
         await autoLoadLogoForTeam('awayTeam', name);
+        await loadData();
       });
 
       // ロゴURL

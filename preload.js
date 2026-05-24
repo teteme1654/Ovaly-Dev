@@ -166,6 +166,23 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getLogoForTeam: (teamName) => ipcRenderer.invoke('get-logo-for-team', teamName),
   getHostImageAdjust: () => ipcRenderer.invoke('get-host-image-adjust'),
   setHostImageAdjust: (offsetY, scale) => ipcRenderer.invoke('set-host-image-adjust', offsetY, scale),
-  saveMatchDataFromSlave: (data, sizeSettings) => ipcRenderer.invoke('save-match-data-from-slave', data, sizeSettings)
+  saveMatchDataFromSlave: (data, sizeSettings) => ipcRenderer.invoke('save-match-data-from-slave', data, sizeSettings),
+
+  // 選手紹介スライド
+  preparePlayerSlide: (data) => ipcRenderer.invoke('prepare-player-slide', data),
+  triggerPlayerSlide: () => ipcRenderer.invoke('trigger-player-slide'),
+  resetPlayerSlide: () => ipcRenderer.invoke('reset-player-slide'),
+  closePlayerSlide: () => ipcRenderer.invoke('close-player-slide'),
+  onPlayerSlidePrepare: (cb) => ipcRenderer.on('player-slide-prepare', (_, data) => cb(data)),
+  onPlayerSlideTrigger: (cb) => ipcRenderer.on('player-slide-trigger', () => cb()),
+  onPlayerSlideReset: (cb) => ipcRenderer.on('player-slide-reset', () => cb()),
+  onPlayerSlideLayoutUpdate: (cb) => ipcRenderer.on('player-slide-layout-update', (_, layout) => cb(layout)),
+  exportPlayerSlide: (data) => ipcRenderer.invoke('export-player-slide', data),
+  exportPlayerSlidesBulk: (team) => ipcRenderer.invoke('export-player-slides-bulk', team),
+  updatePlayerSlideLayout: (layout) => ipcRenderer.invoke('update-player-slide-layout', layout),
+  getPlayerSlideLayout: (team, playerNumber) => ipcRenderer.invoke('get-player-slide-layout', team, playerNumber),
+  getPlayerSlideDefaultLayout: () => ipcRenderer.invoke('get-player-slide-default-layout'),
+  savePlayerSlideLayout: (team, playerNumber, layout) => ipcRenderer.invoke('save-player-slide-layout', team, playerNumber, layout),
+  savePlayerSlideLayoutBulk: (team, layout) => ipcRenderer.invoke('save-player-slide-layout-bulk', team, layout)
 });
 

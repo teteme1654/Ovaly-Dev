@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>Ovaly - 選手紹介スライド</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      width: 1920px;
+      height: 1080px;
+      overflow: hidden;
+      background: #000;
+      font-family: 'Meiryo', 'Arial', sans-serif;
+    }
+
+    .standby-indicator {
+      position: fixed;
+      bottom: 16px;
+      right: 16px;
+      font-size: 12px;
+      color: rgba(255,255,255,0.25);
+      letter-spacing: 0.1em;
+      z-index: 100;
+      user-select: none;
+    }
+
+    .slide-overlay {
+      position: fixed;
+      inset: 0;
+      width: 1920px;
+      height: 1080px;
+      opacity: 0;
+      transition: opacity 0.7s ease;
+      pointer-events: none;
+    }
+
+    .slide-overlay.active {
+      opacity: 1;
+    }
+
+    /* 背景画像 */
+    .background {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      z-index: 1;
+    }
+
+    /* 背番号 */
+    .jersey-number {
+      position: absolute;
+      left: 131px;
+      top: 293px;
+      color: white;
+      font-size: 111px;
+      font-weight: bold;
+      z-index: 10;
+      text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+      transform: translateX(-50%);
+    }
+
+    /* チームロゴ */
+    .team-logo {
+      position: absolute;
+      left: 41px;
+      top: 500px;
+      width: 200px;
+      height: 200px;
+      object-fit: contain;
+      z-index: 10;
+    }
+
+    /* 選手名（日本語） */
+    .name-jp {
+      position: absolute;
+      left: 325px;
+      top: 500px;
+      color: white;
+      font-size: 100px;
+      font-weight: bold;
+      z-index: 10;
+      letter-spacing: 0.05em;
+      white-space: nowrap;
+    }
+
+    /* 選手名（英語） */
+    .name-en {
+      position: absolute;
+      left: 318px;
+      top: 610px;
+      color: white;
+      font-size: 51px;
+      font-weight: bold;
+      z-index: 10;
+      white-space: nowrap;
+    }
+
+    /* ポジション */
+    .position {
+      position: absolute;
+      right: 492px;
+      top: 550px;
+      color: white;
+      font-size: 66px;
+      font-weight: bold;
+      z-index: 10;
+      white-space: nowrap;
+    }
+
+    /* 選手写真 */
+    .player-photo {
+      position: absolute;
+      top: 0;
+      right: 60px;
+      width: 750px;
+      height: 1080px;
+      object-fit: contain;
+      object-position: bottom;
+      z-index: 15;
+      filter: drop-shadow(0 8px 30px rgba(0,0,0,0.5));
+    }
+
+    .player-photo-placeholder {
+      position: absolute;
+      top: 0;
+      right: 60px;
+      width: 750px;
+      height: 1080px;
+      z-index: 15;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 8em;
+      color: rgba(255,255,255,0.2);
+    }
+  </style>
+</head>
+<body>
+  <div class="standby-indicator" id="standbyIndicator">STANDBY</div>
+
+  <div class="slide-overlay" id="slideOverlay">
+    <img class="background" src="assets/images/ui/bg_visitor.png" alt="">
+
+    <div class="jersey-number" id="jerseyNumber">No.1</div>
+    <img class="team-logo" id="teamLogo" src="" alt="" style="display:none;">
+    <div class="name-jp" id="nameJp">-</div>
+    <div class="name-en" id="nameEn"></div>
+    <div class="position" id="position"></div>
+    <div id="playerPhotoWrap">
+      <div class="player-photo-placeholder">?</div>
+    </div>
+  </div>
+
+  <script>
+    const POSITION_NAMES = {
+      PR: 'プロップ', HO: 'フッカー', LO: 'ロック',
+      FL: 'フランカー', No8: 'ナンバーエイト', NO8: 'ナンバーエイト',
+      SH: 'スクラムハーフ', SO: 'スタンドオフ',
+      WTB: 'ウィング', CTB: 'センター', FB: 'フルバック'
+    };
+    function formatPosition(pos) {
+      if (!pos) return '';
+      const kana = POSITION_NAMES[pos] || POSITION_NAMES[pos.toUpperCase()] || null;
+      return kana ? `${pos} / ${kana}` : pos;
+    }
+
+    function applyLayout(layout) {
+      if (!layout) return;
+      const j = layout.jerseyNumber;
+      const el = document.getElementById('jerseyNumber');
+      el.style.left = j.left + 'px'; el.style.top = j.top + 'px'; el.style.fontSize = j.size + 'px';
+
+      const l = layout.teamLogo;
+      const logo = document.getElementById('teamLogo');
+      logo.style.left = l.left + 'px'; logo.style.top = l.top + 'px';
+      logo.style.width = l.size + 'px'; logo.style.height = l.size + 'px';
+
+      const nj = layout.nameJp;
+      const nameJp = document.getElementById('nameJp');
+      nameJp.style.left = nj.left + 'px'; nameJp.style.top = nj.top + 'px'; nameJp.style.fontSize = nj.size + 'px';
+
+      const ne = layout.nameEn;
+      const nameEn = document.getElementById('nameEn');
+      nameEn.style.left = ne.left + 'px'; nameEn.style.top = ne.top + 'px'; nameEn.style.fontSize = ne.size + 'px';
+
+      const p = layout.position;
+      const pos = document.getElementById('position');
+      pos.style.right = p.right + 'px'; pos.style.top = p.top + 'px'; pos.style.fontSize = p.size + 'px';
+
+      const ph = layout.playerPhoto;
+      const photoEl = document.querySelector('.player-photo') || document.querySelector('.player-photo-placeholder');
+      if (photoEl) {
+        photoEl.style.right = ph.right + 'px'; photoEl.style.top = ph.top + 'px';
+        photoEl.style.height = ph.size + 'px';
+        photoEl.style.width = Math.round(ph.size * 750 / 1080) + 'px';
+      }
+    }
+
+    window.electronAPI.onPlayerSlidePrepare((data) => {
+      document.getElementById('jerseyNumber').textContent = 'No.' + data.playerNumber;
+      document.getElementById('nameJp').textContent = data.playerName || '-';
+      document.getElementById('nameEn').textContent = data.playerNameEn || '';
+      document.getElementById('position').textContent = formatPosition(data.position);
+
+      const logoEl = document.getElementById('teamLogo');
+      if (data.teamLogo) {
+        logoEl.src = data.teamLogo;
+        logoEl.style.display = 'block';
+      } else {
+        logoEl.style.display = 'none';
+      }
+
+      const wrap = document.getElementById('playerPhotoWrap');
+      if (data.playerImage) {
+        wrap.innerHTML = `<img class="player-photo" src="${data.playerImage}" alt="">`;
+      } else {
+        wrap.innerHTML = `<div class="player-photo-placeholder">?</div>`;
+      }
+
+      if (data.layout) applyLayout(data.layout);
+
+      const ind = document.getElementById('standbyIndicator');
+      ind.textContent = `STANDBY: No.${data.playerNumber} ${data.playerName}`;
+    });
+
+    window.electronAPI.onPlayerSlideTrigger(() => {
+      document.getElementById('slideOverlay').classList.add('active');
+      document.getElementById('standbyIndicator').style.display = 'none';
+    });
+
+    window.electronAPI.onPlayerSlideLayoutUpdate((layout) => {
+      applyLayout(layout);
+    });
+
+    window.electronAPI.onPlayerSlideReset(() => {
+      document.getElementById('slideOverlay').classList.remove('active');
+      const ind = document.getElementById('standbyIndicator');
+      ind.style.display = 'block';
+      ind.textContent = 'STANDBY';
+    });
+  </script>
+</body>
+</html>
